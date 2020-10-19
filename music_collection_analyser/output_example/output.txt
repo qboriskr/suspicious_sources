@@ -1,0 +1,46 @@
+﻿Loading cache ./scanned.data
+
+Top level-1 sized dirs:
+01 Music  - 9796610 MB
+02 music  - 4770635 MB
+
+Top level-2 sized dirs:
+01 techno_compilations  - 3427423 MB
+02 rock  - 2686878 MB
+03 Metal  - 1666861 MB
+04 Classic  - 1309682 MB
+05 disco  - 1238303 MB
+06 techno  - 841923 MB
+07 Ambient  - 618499 MB
+08 dnb  - 377292 MB
+09 label_packs  - 304576 MB
+10 MetalOld  - 275378 MB
+11 Jazz  - 255468 MB
+12 breakbeat  - 197174 MB
+13 JazzModern  - 186345 MB
+14 IDM  - 171154 MB
+15 radio  - 149943 MB
+16 hardcore  - 114230 MB
+17 EBM  - 93139 MB
+18 SynthPop  - 91519 MB
+19 rap  - 75213 MB
+20 Trap and Witchhouse  - 30856 MB
+
+Total 42032 folders
+
+Size by format:
+flac -> 9043427 MB
+mp3 -> 2077606 MB
+wv -> 1274199 MB
+iso -> 738817 MB
+ape -> 567138 MB
+dsf -> 544213 MB
+dff -> 128571 MB
+wav -> 125224 MB
+m4a -> 65380 MB
+dts -> 2665 MB
+
+Searching for duplicates...
+Found 1667 duplicates:
+Possible duplicates size: 702510 MB
+
