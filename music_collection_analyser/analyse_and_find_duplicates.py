@@ -15,10 +15,10 @@ from queue import PriorityQueue, Full, Empty
 COLLECTION_ROOTS = 'B:/Music;F:/music'
 
 # Cache options
-USE_CACHE = True
+USE_CACHE = not True
 FORCE_RESCAN = False
 STORAGE_FILE = './scanned.data'
-OVERWRITE_EXISTING = False
+OVERWRITE_EXISTING = True
 
 # Optional actions
 FIND_DUPLICATES = True
@@ -37,14 +37,6 @@ INITIAL_YEAR = 2018
 CURRENT_YEAR = 2020
 
 # ====================
-SUBDIRS = 'subdirs'
-SIZE = 'size'
-LOSSY = 'lossy'
-FMT = 'fmt'
-GENRE = 'genre'
-TIME = 'time'
-NAME = 'name'
-PARENT = 'parent'
 MUSIC_EXTS = {'wav', 'mp3', 'flac', 'ape', 'iso', 'dff', 'dts', 'dsf', 'dts', 'wav', 'wv', 'm4a'}
 
 MIN_YEAR = INITIAL_YEAR
@@ -58,25 +50,25 @@ def getFolderSize(p):
                 for f in map(prepend_dir, os.listdir(p))])
 
 
+class DirNode:
+    def __init__(self, name, size=0, fmt='', time=0):
+        self.subdirs = []
+        self.size = size
+        self.lossy = True
+        self.fmt = fmt
+        self.genre = ''
+        self.time = time
+        self.name = name
+
+
 class Scanner:
     def __init__(self, roots):
         self.roots = roots
-        self.content_dirs = []
+        self.content_dirs = DirNode('Scan results')
         self.changed = False
         self.fmt_sizes = self.get_empty_fmt_stats()
         self.count = 0
-
-    @staticmethod
-    def make_dir_node(name, size=0, fmt='', time=0):
-        return {
-            SUBDIRS: [],
-            SIZE: size,
-            LOSSY: True,
-            FMT: fmt,
-            GENRE: '',
-            TIME: time,
-            NAME: name
-        }
+        self.parent = None
 
     def do_op(self, op, in_depth=True, max_level=0):
 
@@ -85,7 +77,7 @@ class Scanner:
                 return
             if in_depth:
                 op(level, dir, parent_node)
-            for subdir in dir[SUBDIRS]:
+            for subdir in dir.subdirs:
                 do_op_recursive(level + 1, subdir, dir)
             if not in_depth:
                 op(level, dir, parent_node)
@@ -99,9 +91,9 @@ class Scanner:
         all_items = set()
 
         def process(_level, dir, parent_node):
-            dir[PARENT] = parent_node
-            if dir[FMT]:
-                item = (dir[NAME], dir[SIZE])
+            dir.parent = parent_node
+            if dir.fmt:
+                item = (dir.name, dir.size)
                 if item in all_items:
                     duplicates.add(item)
                 else:
@@ -117,16 +109,16 @@ class Scanner:
         dup_size = defaultdict(list)
 
         def get_full_dir_path(dir, path):
-            current = dir[NAME]
-            if PARENT in dir and dir[PARENT] is not None:
-                return os.path.join(get_full_dir_path(dir[PARENT], path), current)
+            current = dir.name
+            if dir.parent is not None:
+                return os.path.join(get_full_dir_path(dir.parent, path), current)
             return os.path.join(path, current)
 
         def process2(_level, dir, _parent_node):
-            item = (dir[NAME], dir[SIZE])
+            item = (dir.name, dir.size)
             if item in duplicates:
                 dup_paths[item].append(get_full_dir_path(dir, ''))
-                dup_size[item].append(dir[SIZE])
+                dup_size[item].append(dir.size)
 
         self.do_op(process2)
         possible_loss = sum([sum(v[1:]) for v in dup_size.values()])
@@ -221,22 +213,22 @@ class Scanner:
                 return
             while True:
                 try:
-                    q.put((dir[SIZE], dir), block=False)
+                    q.put((dir.size, dir), block=False)
                     break
                 except Full:
                     q.get()
 
         def clr_size(_level, _dir, parent):
             if parent:
-                parent[SIZE] = 0
+                parent.size = 0
 
         def set_size(_level, dir, parent):
             if parent:
-                sz = dir[SIZE]
-                fmt = dir[FMT]
+                sz = dir.size
+                fmt = dir.fmt
                 if fmt:
                     self.fmt_sizes[fmt] += sz
-                    year = datetime.datetime.utcfromtimestamp(dir[TIME]).year
+                    year = datetime.datetime.utcfromtimestamp(dir.time).year
                     if year < INITIAL_YEAR:
                         global MIN_YEAR
                         if MIN_YEAR > year:
@@ -245,7 +237,7 @@ class Scanner:
                     elif year > CURRENT_YEAR:
                         year = CURRENT_YEAR
                     self.fmt_sizes_by_year[year][fmt] += sz
-                parent[SIZE] += sz
+                parent.size += sz
 
         self.do_op(clr_size, in_depth=False)
         self.do_op(set_size, in_depth=False)
@@ -261,7 +253,7 @@ class Scanner:
                     break
                 dirs.append(item[1])
             for i, dir in enumerate(reversed(dirs)):
-                print('%.2d' % (i + 1), dir[NAME], ' - %d MB' % (dir[SIZE] / bytes_in_mb))
+                print('%.2d' % (i + 1), dir.name, ' - %d MB' % (dir.size / bytes_in_mb))
 
     def print_found(self):
         print('')
@@ -269,13 +261,13 @@ class Scanner:
         cnt = 0
 
         def prnt(level, dir, _parent):
-            mb = dir[SIZE] / bytes_in_mb
+            mb = dir.size / bytes_in_mb
             nonlocal cnt
             cnt += 1
             if cnt > PRINT_MAX_FOUND_N:
                 raise StopIteration
 
-            print(' ' * (2 * level) + dir[NAME] + ' - %d MB' % mb)
+            print(' ' * (2 * level) + dir.name + ' - %d MB' % mb)
 
         try:
             self.do_op(prnt)
@@ -294,7 +286,7 @@ class Scanner:
             files = os.listdir(root)
             dirs = []
             root_dirname = os.path.basename(root)
-            content_dirs = self.make_dir_node(root_dirname)
+            content_dirs = DirNode(root_dirname)
             for filename in files:
                 full_path = os.path.join(root, filename)
                 if os.path.isdir(full_path):
@@ -308,10 +300,10 @@ class Scanner:
                         self.count += 1
                         if self.count % 1000 == 0:
                             print('Scanned %d elements, current:' % self.count, root)
-                        content_dir = self.make_dir_node(root_dirname,
-                                                         fmt=ext,
-                                                         size=getFolderSize(root),
-                                                         time=os.stat(root).st_mtime)
+                        content_dir = DirNode(root_dirname,
+                                              fmt=ext,
+                                              size=getFolderSize(root),
+                                              time=os.stat(root).st_mtime)
                         return content_dir
 
             for d in dirs:
@@ -319,17 +311,16 @@ class Scanner:
                 if os.path.isdir(full_path):
                     subdir = scan_root(full_path)
                     if subdir:
-                        content_dirs[SUBDIRS].append(subdir)
-            if content_dirs[SUBDIRS]:
+                        content_dirs.subdirs.append(subdir)
+            if content_dirs.subdirs:
                 return content_dirs
             else:
                 return None
 
-        self.content_dirs = self.make_dir_node('Scan results')
         for r in self.roots:
             subdir = scan_root(r)
             if subdir:
-                self.content_dirs[SUBDIRS].append(subdir)
+                self.content_dirs.subdirs.append(subdir)
 
         self.changed = self.count != old_count
 
