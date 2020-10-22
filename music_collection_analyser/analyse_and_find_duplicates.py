@@ -15,10 +15,10 @@ from queue import PriorityQueue, Full, Empty
 COLLECTION_ROOTS = 'B:/Music;F:/music'
 
 # Cache options
-USE_CACHE = not True
-FORCE_RESCAN = False
+USE_CACHE = True
+FORCE_RESCAN = True
 STORAGE_FILE = './scanned.data'
-OVERWRITE_EXISTING = True
+OVERWRITE_EXISTING = not True
 
 # Optional actions
 FIND_DUPLICATES = True
@@ -93,7 +93,8 @@ class Scanner:
         def process(_level, dir, parent_node):
             dir.parent = parent_node
             if dir.fmt:
-                item = (dir.name, dir.size)
+                round_size = (dir.size // 32) * 32
+                item = (dir.name, round_size)
                 if item in all_items:
                     duplicates.add(item)
                 else:
@@ -115,7 +116,8 @@ class Scanner:
             return os.path.join(path, current)
 
         def process2(_level, dir, _parent_node):
-            item = (dir.name, dir.size)
+            round_size = (dir.size // 256) * 256
+            item = (dir.name, round_size)
             if item in duplicates:
                 dup_paths[item].append(get_full_dir_path(dir, ''))
                 dup_size[item].append(dir.size)
@@ -357,7 +359,7 @@ if __name__ == "__main__":
     overwrite_existing = OVERWRITE_EXISTING
 
     cache_loaded = False
-    if use_cache and os.path.exists(storage_file):
+    if not force_rescan and use_cache and os.path.exists(storage_file):
         scanner = Scanner.load(storage_file)
         cache_loaded = True
     else:
@@ -382,5 +384,5 @@ if __name__ == "__main__":
     if PLOT:
         scanner.draw_fmt_sizes(images_dir)
 
-    if not (overwrite_existing and os.path.exists(storage_file)):
+    if not os.path.exists(storage_file) or overwrite_existing:
         scanner.save(storage_file)
