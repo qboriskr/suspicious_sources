@@ -1,20 +1,21 @@
 # Introduction
 
 I hate to loose fresh hot videos because of modern YT rules, so I download everything to watch offline later, and I'd like to read hot comments too.
-This repo contains my custom massive YT comments downloader which transforms comments from json into readable txt files.
+This repo contains my custom massive YT comments downloader.
 Specific video file naming is required: blablabla-youtubeID.webm or blablabla-youtubeID.mp4 etc.
-Example of youtubeID is "dQw4w9WgXcQ" and it is used for downloading comments with youtube-comment-downloader.
+Example of youtubeID is "dQw4w9WgXcQ" and it is passed to youtube-comment-downloader utility which downloads comments in json.
+Python utility transforms comments from json into readable text file, and also updates its creation date by date from YT video file.
 
 # Required software
 
-* youtube-comment-downloader
 * youtube-dl / yt-dlp (faster)
+* youtube-comment-downloader
 
 # Usage
 
 Basic usage is:
-1. Download new videos with 
-1. Change destination path and options in the end of screpper222.py:
+1. Download videos with youtube-dl / yt-dlp.
+2. Change destination path and options in the end of screpper222.py:
 ```
     paths = ['E:/video_tmp/Podolyaka']
     opts = {
