@@ -1,10 +1,14 @@
 # Introduction
 
-I hate to loose fresh hot videos because of modern YT rules, so I download everything to watch offline later, and I'd like to read hot comments too.
+I hate to loose fresh hot videos because of modern YT rules, so I download everything to watch offline later, and I'd like to read the comments too.
 
-This repo contains my custom massive YT comments downloader. It scans input path and tries to download comments for each found YT video. Specific video file naming is required: blablabla-youtubeID.webm or blablabla-youtubeID.mp4 etc.
-Example of youtubeID is "dQw4w9WgXcQ". These IDs are passed to youtube-comment-downloader, and the tool produces a json file, if video is not banned yet.
-My utility transforms comments into human-readable text file, and also updates its creation date by date from source YT video file.
+This repo contains massive YT comments downloader utility - screpper222.
+
+It scans input path and tries to download comments for each found YT video. Specific video file naming is required: blablabla-youtubeID.webm or blablabla-youtubeID.mp4 etc.
+Example of youtube ID is "dQw4w9WgXcQ". This ID is passed to youtube-comment-downloader tool, which produces a json file, if the video is not banned yet ;)
+
+Screpper222 transforms comments from json dump into human-readable text file, and also updates its creation date by one from source video file. 
+If same video processed again, multiple versions of comment dumps are kept (interesting comments are often deleted, but could be found in earlier dumps).
 
 # Required tools
 
