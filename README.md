@@ -4,12 +4,12 @@ I hate to loose fresh hot videos because of modern YT rules, so I download every
 
 This repo contains my custom massive YT comments downloader. It scans input path and tries to download comments for each found YT video. Specific video file naming is required: blablabla-youtubeID.webm or blablabla-youtubeID.mp4 etc.
 Example of youtubeID is "dQw4w9WgXcQ". These IDs are passed to youtube-comment-downloader, and the tool produces a json file, if video is not banned yet.
-Python utility transforms comments from json into readable text file, and also updates its creation date by date from source YT video file.
+My utility transforms comments into human-readable text file, and also updates its creation date by date from source YT video file.
 
 # Required tools
 
-* youtube-dl / yt-dlp (faster)
-* youtube-comment-downloader
+* youtube-dl or yt-dlp (later is faster) 
+* youtube-comment-downloader [https://github.com/egbertbouman/youtube-comment-downloader]
 
 # Usage
 
