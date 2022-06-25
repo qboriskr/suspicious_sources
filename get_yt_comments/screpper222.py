@@ -404,10 +404,9 @@ if __name__ == '__main__':
     # paths = ['H:/polit2022/Ukraine war/8 канал/fresh']
     for start_path in paths:
         setup_logging('scrape_runtime2.log')
-        opts = {
-            'skip_until': '5UoJqCbGDRk',
+        opts = {            
             # 'skip_until': 'cEBzmMkgJ9s',  # EmYeOBoLhYs
-            'forced_mtime': 1,
+            'forced_mtime': 0,
             'skip_existing': 1,
             'min_new_comments': 5,
             'min_new_comments_perc': 2,  # % новых комментов
