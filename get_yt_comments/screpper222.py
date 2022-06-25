@@ -1,11 +1,17 @@
+import json
 import os
 import logging
 import subprocess
+import sys
+from datetime import datetime
+from collections import defaultdict, OrderedDict
 from time import sleep
 
-max_load_retry = 30
-sleep_init = 0.2
-sleep_backstep = 1.5
+max_load_retry = 0
+extra_opt_retry = 7
+sleep_init_seconds = 5
+sleep_backstep = 1.1
+skip_until = ''  # part of filename to skip processing.
 
 tmp_file_path = ''
 
@@ -25,7 +31,7 @@ logging.info('yt_length: %d', yt_length)
 
 dot_part_ext = ".part"
 
-file_types = ["mkv", "mp4", 'webm', 'part']
+file_types = ["mkv", "mp4", 'webm', 'part', 'dummy']
 
 total_files = 0
 interesting_files = 0
@@ -33,7 +39,7 @@ subfolders = 0
 created_comments = 0
 
 
-def create_comments_if_missing(start_path):
+def create_comments_dir_if_missing(start_path):
     comments_path = os.path.join(start_path, comments_dir)
     if not os.path.exists(comments_path):
         logging.info('Creating dir %s', comments_path)
@@ -41,7 +47,14 @@ def create_comments_if_missing(start_path):
     return comments_path
 
 
-def grep_ytid(f):
+def grep_ytid(f: str):
+    if '[' in f and ']' in f:
+        ytid = f[f.find('[') + 1: f.find(']')]
+        logging.info('%s -> ytid: %s', f, ytid)
+        if len(ytid) == yt_length:
+            logging.info('ytid is ok')
+            return ytid
+
     dot_left_part = f[:f.rfind('.')]
     minus_right_parts = dot_left_part.split('-')
     minus_right_part = minus_right_parts[-1]
@@ -56,29 +69,33 @@ def grep_ytid(f):
     return ''
 
 
-def check_existing_comments(comments_path, n=1, prev=None, origin=None):
-    if os.path.exists(comments_path):
-        if origin is None:
-            origin = comments_path
-        base, ext = os.path.splitext(origin)
-        new_path = base + '_' + str(n) + ext
-        comments_path, prev = check_existing_comments(new_path, n + 1, comments_path, origin)
-    return comments_path, prev
+# (C) https://stackoverflow.com/a/68385697/17380035
+def buf_count_newlines_gen(fname):
+    def _make_gen(reader):
+        while True:
+            b = reader(2 ** 16)
+            if not b:
+                break
+            yield b
+
+    with open(fname, "rb") as f:
+        count = sum(buf.count(b"\n") for buf in _make_gen(f.raw.read))
+    return count
 
 
 def get_lines_count(file_path):
     if file_path is None:
         return 0
-    try:
-        return int(subprocess.check_output(["wc", "-l", file_path]).decode("utf8").split()[0])
-    except Exception:
-        # иногда может не срабатывать из-за символов windows, которые запрещены в файлах linux
-        # Используем стандартный подход:
-        count = 0
-        with open(file_path, 'r', errors="ignore") as fp:
-            for _line in fp:
-                count += 1
-        return count
+    # return int(subprocess.check_output(["wc", "-l", file_path]).decode("utf8").split()[0])
+    # wc -l может не срабатывать из-за символов windows, которые запрещены в файлах linux
+    # Стандартный подход тоже глючит с ошибкой Error: failed to set sorting.
+    #     count = 0
+    #     with open(file_path, 'r', errors="ignore") as fp:
+    #         for _line in fp:
+    #             count += 1
+    #     return count
+    # Поэтому используем подход с бинарным чтением:
+    return buf_count_newlines_gen(file_path)
 
 
 def del_file(file_path):
@@ -88,7 +105,115 @@ def del_file(file_path):
         os.remove(file_path)
 
 
+def fmt_as_text(text, time, author):
+    return '[%s, %s]: %s' % (author, time, text)
+
+
+def set_file_mtime(new_path, opts, forced_mtime=False):
+    if forced_mtime:
+        if not 'forced_mtime' in opts or not opts['forced_mtime']:
+            return
+
+    if 'mtime' in opts:
+        mtime = opts['mtime']
+        try:
+            os.utime(new_path, (mtime, mtime))
+        except Exception as exc:
+            logging.error('Cannot set mtime: %s', exc)
+
+
+def convert_to_text(comments_path, opts):
+    """
+    Example:
+    {"cid": "UgzNyqxPkw0q1ItcCKx4AaABAg", "text": "Шеф :elbowcough: всё пропало! гипс снимают! клиент уезжает!:yougotthis:",
+    "time": "2 недели назад", "author": "сабурский атаман", "channel": "UCE9a7q_G99z6nqKlLxlIWdA", "votes": "1",
+    "photo": "https://yt3.ggpht.com/ytc/AKedOLR00-5SL32nbcPq1Hr4D_s4--sC8Icoohjeqw=s176-c-k-c0x00ffffff-no-rj",
+    "heart": false, "time_parsed": 1647356834.670765}
+
+    {"cid": "UgyRRImNrOZVnb6Mn3Z4AaABAg", "text": "Живий тэхники)))",
+    "time": "2 недели назад", "author": "Zhenia Savchik", "channel": "UCadMViBDkgfQTH7TrLbFcIg", "votes": "0",
+    "photo": "https://yt3.ggpht.com/ytc/AKedOLSlusACjf3b75OBclluEG_Y7nBSDy4iJw_dLw=s176-c-k-c0x00ffffff-no-rj",
+    "heart": false, "time_parsed": 1647356834.672717}
+    """
+    if not opts['convert_to_text']:
+        return
+    if not os.path.exists(comments_path):
+        return
+
+    if 'mark_text' in opts and opts['mark_text']:
+        mark_text = opts['mark_text']
+    else:
+        mark_text = ''
+
+    base, ext = os.path.splitext(comments_path)
+    new_path = base + '.txt'
+    mark_path = base + '.mark'
+    if os.path.exists(new_path):
+        set_file_mtime(new_path, opts, forced_mtime=True)
+        return
+    try:
+        try:
+            with open(mark_path, 'w+', encoding='utf-8') as of_mark:
+                mark_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                print(mark_timestamp, file=of_mark)
+                print(mark_text, file=of_mark)
+        except Exception as ext:
+            print(ext)
+            sys.exit(1)
+
+        with open(comments_path, 'r', errors="ignore", encoding='utf-8') as fp, \
+                open(new_path, 'w+', encoding='utf-8') as ofp:
+            lines = fp.readlines()
+            answers = defaultdict(list)
+            jsons = map(lambda line: json.loads(line), lines)
+            rows = OrderedDict()
+
+            for j in jsons:
+                cid = j['cid']
+                text = j['text']
+                time = j['time']
+                author = j['author']
+                formatted = fmt_as_text(text, time, author)
+                if cid.find('.') >= 0:
+                    pcid = cid[:cid.find('.')]
+                    answers[pcid].append(formatted)
+                else:
+                    rows[cid] = formatted
+
+            for cid, formatted in rows.items():
+                print(formatted, file=ofp)
+                if cid in answers:
+                    for answer in answers[cid]:
+                        print('  \\' + answer, file=ofp)
+        set_file_mtime(new_path, opts)
+        new_path = ''
+
+    except KeyboardInterrupt:
+        logging.info('Interrupted!')
+    except Exception as ex:
+        logging.info('Error converting to text: %s', repr(ex), exc_info=1)
+    if new_path:
+        logging.info('Cleaning tmp file: %s', new_path)
+        del_file(new_path)
+
+
+def check_existing_comments(comments_path, opts, n=1, prev=None, origin=None):
+    if os.path.exists(comments_path):
+        set_file_mtime(comments_path, opts, forced_mtime=True)
+        opts['mark_text'] = 'UPDATE txt by existing json'
+        convert_to_text(comments_path, opts)
+
+        if origin is None:
+            origin = comments_path
+        base, ext = os.path.splitext(origin)
+        new_path = base + '_' + str(n) + ext
+        comments_path, prev = check_existing_comments(new_path, opts, n + 1, comments_path, origin)
+    return comments_path, prev
+
+
 def process_video(f, ytid, comments_dir_path, opts):
+    global skip_until
+    update_if_negative = opts['update_if_negative']
     min_new_comments_to_keep = opts['min_new_comments']
     min_new_comments_to_keep_perc = opts['min_new_comments_perc'] / 100
     skip_existing = opts['skip_existing']
@@ -102,43 +227,66 @@ def process_video(f, ytid, comments_dir_path, opts):
     comments_name += '.json'
 
     comments_path = os.path.join(comments_dir_path, comments_name)
-    new_comments, prev_comments = check_existing_comments(comments_path)
-    if skip_existing and prev_comments is not None:
+    new_comments_path, prev_comments_path = check_existing_comments(comments_path, opts)
+    if skip_existing and prev_comments_path is not None:
         logging.info('Skip existing comments for %s', f)
         return
 
+    if skip_until:
+        if skip_until in new_comments_path:
+            logging.info('Target file reached: %s', f)
+            skip_until = ''
+        else:
+            logging.info('Skip for %s until %s', f, skip_until)
+            return
+
     global tmp_file_path
-    tmp_file_path = new_comments
-    cmd = ['youtube-comment-downloader', '--youtubeid=' + ytid, '--output', new_comments]
+    tmp_file_path = new_comments_path
+    cmd = ['youtube-comment-downloader', '--youtubeid=' + ytid, '--output', new_comments_path]
     logging.info(' '.join(cmd))
 
-    try_load = 0
-    sleep_secs = sleep_init
-    while try_load != max_load_retry:
+    retry_count = 0
+    sleep_secs = sleep_init_seconds
+    while True:
         result = subprocess.run(cmd)
-        if result.returncode != 0:
-            del_file(new_comments)
-            logging.info('Sleep %d seconds after error', sleep_secs)
-            sleep(sleep_secs)
-            sleep_secs *= sleep_backstep
-        else:
+        if result.returncode == 0:
             break
+        if retry_count == extra_opt_retry:
+            sorting_issue = 'https://github.com/egbertbouman/youtube-comment-downloader/issues/105'
+            sorting_fix_opt = '--sort=0'
+            logging.warning('Append sorting fix option %s to bypass issue %s', sorting_fix_opt, sorting_issue)
+            cmd.append(sorting_fix_opt)
 
-    new_lines = get_lines_count(new_comments)
+        cmd_str = ' '.join(cmd)
+        logging.error('Command failed:\n%s', cmd_str)
+        del_file(new_comments_path)
+        logging.info('Sleep %d seconds after retry (%s)', sleep_secs, retry_count)
+        sleep(sleep_secs)
+        sleep_secs *= sleep_backstep
+        retry_count += 1
+        if retry_count >= max_load_retry:
+            return None
+    set_file_mtime(new_comments_path, opts)
+    new_lines = get_lines_count(new_comments_path)
     logging.info('Got %d new_lines', new_lines)
 
     # Если размер 0 - удаляем
     if not new_lines:
         logging.info('DEL - no comments!')
-        del_file(new_comments)
-        return
-    if prev_comments is not None:
+        del_file(new_comments_path)
+        return None
+    if prev_comments_path is not None:
         # или число коментов совпадает с предыдущим - удаляем
-        old_lines = get_lines_count(prev_comments)
+        old_lines = get_lines_count(prev_comments_path)
         if new_lines == old_lines:
             logging.info('DEL - Same amount of comments (%d)', new_lines)
-            del_file(new_comments)
-            return
+            del_file(new_comments_path)
+            return None
+
+        if update_if_negative and new_lines <= old_lines - update_if_negative:
+            logging.info('REMOVED %d comments: %d -> %d',
+                         old_lines - new_lines, old_lines, new_lines)
+            return new_comments_path
 
         # Не нашли N новых комментов - удаляем
         if (min_new_comments_to_keep is not None and new_lines - old_lines < min_new_comments_to_keep) and \
@@ -146,15 +294,17 @@ def process_video(f, ytid, comments_dir_path, opts):
                  (new_lines - old_lines) / old_lines < min_new_comments_to_keep_perc):
             logging.info('DEL - Not enough new comments (%d): %d -> %d',
                          new_lines - old_lines, old_lines, new_lines)
-            del_file(new_comments)
-            return
+            del_file(new_comments_path)
+            return None
         else:
-            logging.info('APPEND new comments (%d): %d -> %d',
-                         new_lines - old_lines, old_lines, new_lines)
-            return
-    logging.info('ADD new comments (%d)', new_lines)
-    global created_comments
-    created_comments += 1
+            mark_text = f'APPEND new comments ({new_lines - old_lines}): {old_lines} -> {new_lines}'
+            logging.info(mark_text)
+            opts['mark_text'] = mark_text
+            return new_comments_path
+    mark_text = f'ADD new comments ({new_lines})'
+    logging.info(mark_text)
+    opts['mark_text'] = mark_text
+    return new_comments_path
 
 
 def scan_folder(start_path, opts):
@@ -183,10 +333,23 @@ def scan_folder(start_path, opts):
                     logging.info('File: %s', f)
                     global interesting_files
                     interesting_files += 1
+
+                    # mtime is not UTC, but local time
+                    mtime = os.path.getmtime(fullpath)
+                    opts['mtime'] = mtime
+                    logging.info('Date: %s', datetime.fromtimestamp(mtime))
+
                     # создаем папку только если нашли файл, похожий на ролик YT
                     if comments_path is None:
-                        comments_path = create_comments_if_missing(start_path)
-                    process_video(f, ytid, comments_path, opts)
+                        comments_path = create_comments_dir_if_missing(start_path)
+
+                    opts['mark_text'] = ''  # clean mark text
+                    result_comments_path = process_video(f, ytid, comments_path, opts)
+                    if result_comments_path:
+                        global created_comments
+                        created_comments += 1
+                        convert_to_text(result_comments_path, opts)
+
                     global tmp_file_path
                     tmp_file_path = ''
             else:
@@ -215,6 +378,8 @@ def setup_logging(log_filepath):
 
 
 def go_scan(start_path, opts):
+    global skip_until
+    skip_until = opts['skip_until'] if 'skip_until' in opts else ''
     try:
         scan_folder(start_path, opts)
     except KeyboardInterrupt:
@@ -226,6 +391,7 @@ def go_scan(start_path, opts):
         logging.info('Cleaning tmp file: %s', tmp_file_path)
         del_file(tmp_file_path)
 
+    logging.info('Completed path %s', start_path)
     logging.info('Processed total files: %s', total_files)
     logging.info('interesting files: %s', interesting_files)
     logging.info('folders: %s', subfolders)
@@ -233,12 +399,19 @@ def go_scan(start_path, opts):
 
 
 if __name__ == '__main__':
-    paths = ['E:/video_tmp/Podolyaka']
+    setup_logging('scrape_runtime2.log')
+    paths = ['H:/']
+    # paths = ['H:/polit2022/Ukraine war/8 канал/fresh']
     for start_path in paths:
-        setup_logging('scrape_runtime.log')
+        setup_logging('scrape_runtime2.log')
         opts = {
-          'min_new_comments': 500,
-          'min_new_comments_perc': 10,  # % новых комментов
-          'skip_existing': True
+            'skip_until': '5UoJqCbGDRk',
+            # 'skip_until': 'cEBzmMkgJ9s',  # EmYeOBoLhYs
+            'forced_mtime': 1,
+            'skip_existing': 1,
+            'min_new_comments': 5,
+            'min_new_comments_perc': 2,  # % новых комментов
+            'update_if_negative': 2,
+            'convert_to_text': 1,
         }
         go_scan(start_path, opts)
