@@ -18,8 +18,19 @@ If same video processed again, multiple versions of comment dumps are kept. So t
 # Usage
 
 Basic usage is:
-1. Download videos with youtube-dl / yt-dlp.
-2. Change destination path and options in the end of screpper222.py:
+1. Download videos with youtube-dl / yt-dlp. Quick example of how to download all Анатолий Шарий's videos:
+```
+yt-dlp -r 3000k -f bestvideo+bestaudio --yes-playlist --download-archive downloaded.txt --no-post-overwrites --cookies youtube.com_cookies.txt -ci -a links.txt 
+```
+where -r is for limit speed, and "links.txt" is a file that has eiter particular videos or even the whole playlist single link:
+```
+# funny related video
+https://youtu.be/BhaI2SqxHjE
+# full playlist
+https://www.youtube.com/user/SuperSharij/videos
+```
+
+3. Change destination path and options in the end of screpper222.py:
 ```
     paths = ['E:/video_tmp/Podolyaka']
     opts = {
