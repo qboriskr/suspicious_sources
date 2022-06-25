@@ -17,7 +17,7 @@ If same video processed again, multiple versions of comment dumps are kept. So t
 
 # Usage
 
-Basic usage is:
+Typical usage is as follows:
 1. Download videos with youtube-dl / yt-dlp. Quick example of how to download all Анатолий Шарий's videos, say in a E:/video_tmp/Sharij directory:
 ```
 yt-dlp -r 3000k -f bestvideo+bestaudio --yes-playlist --download-archive downloaded.txt --no-post-overwrites --cookies youtube.com_cookies.txt -ci -a links.txt 
