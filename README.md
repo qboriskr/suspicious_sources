@@ -34,8 +34,8 @@ https://www.youtube.com/user/SuperSharij/videos
 ```
     paths = ['E:/video_tmp/Sharij']
     opts = {
-         'min_new_comments': 500,  # min new comments to keep new version of dump. New dump is always added.
-         'min_new_comments_perc': 10,  # % of new comments, to keep new version of dump.
+         'min_new_comments': 500,  # min new comments to keep the new version of a dump.
+         'min_new_comments_perc': 10,  # % of new comments to keep the new version of a dump.
          'skip_existing': True
     }
 ```
