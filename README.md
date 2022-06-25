@@ -30,7 +30,7 @@ https://youtu.be/BhaI2SqxHjE
 https://www.youtube.com/user/SuperSharij/videos
 ```
 
-2. Change destination path and options in the end of screpper222.py:
+2. Change destination path and options at the bottom of screpper222.py:
 ```
     paths = ['E:/video_tmp/Sharij']
     opts = {
