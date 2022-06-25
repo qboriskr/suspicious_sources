@@ -18,7 +18,7 @@ If same video processed again, multiple versions of comment dumps are kept. So t
 # Usage
 
 Basic usage is:
-1. Download videos with youtube-dl / yt-dlp. Quick example of how to download all Анатолий Шарий's videos:
+1. Download videos with youtube-dl / yt-dlp. Quick example of how to download all Анатолий Шарий's videos, say in a E:/video_tmp/Sharij directory:
 ```
 yt-dlp -r 3000k -f bestvideo+bestaudio --yes-playlist --download-archive downloaded.txt --no-post-overwrites --cookies youtube.com_cookies.txt -ci -a links.txt 
 ```
@@ -32,12 +32,12 @@ https://www.youtube.com/user/SuperSharij/videos
 
 3. Change destination path and options in the end of screpper222.py:
 ```
-    paths = ['E:/video_tmp/Podolyaka']
+    paths = ['E:/video_tmp/Sharij']
     opts = {
          'min_new_comments': 500,  # min new comments to keep new version of dump. New dump is always added.
          'min_new_comments_perc': 10,  # % of new comments, to keep new version of dump.
          'skip_existing': True
     }
 ```
-3. Execute
+4. Execute
    python3 screpper222.py 
