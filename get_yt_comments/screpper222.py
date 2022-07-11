@@ -14,6 +14,14 @@ sleep_backstep = 1.1
 skip_until = ''  # part of filename to skip processing.
 
 tmp_file_path = ''
+FORCE_EXIT = False
+
+except_patterns_src = ['.f312.', '.f313.',
+                       '.f247.', '.f248.',
+                       '.f302.', '.f303.']
+except_patterns = set()
+for s in except_patterns_src:
+    except_patterns.add(s.strip())
 
 special_names_src = ['Seagate', 'system', 'windows', 'temp', 'tmp',
                      'ProgramData',
@@ -23,6 +31,7 @@ special_names_src = ['Seagate', 'system', 'windows', 'temp', 'tmp',
 special_names = set()
 for s in special_names_src:
     special_names.add(s.strip().upper())
+
 logging.info('special dirs: %s', repr(special_names))
 
 comments_dir = 'comments_yt'
@@ -310,7 +319,17 @@ def process_video(f, ytid, comments_dir_path, opts):
 def scan_folder(start_path, opts):
     logging.info('Scanning %s', start_path)
     comments_path = None
-    for f in os.listdir(start_path):
+    try:
+        order_by_date = int(opts['order_by_date'])
+    except KeyError:
+        order_by_date = -1
+
+    files = os.listdir(start_path)
+    if order_by_date == -1:
+        files.sort(key=lambda f: -os.path.getmtime(os.path.join(start_path, f)))
+    elif order_by_date == 1:
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(start_path, f)))
+    for fcount, f in enumerate(files):
         if f == comments_dir:
             continue
 
@@ -319,8 +338,17 @@ def scan_folder(start_path, opts):
         for special_name in special_names:
             if f.upper() == special_name:
                 skip = True
+                break
         if skip:
-            logging.info('Skip special dir: %s', f)
+            logging.info('Skip technical dir: %s', f)
+            continue
+
+        for except_pattern in except_patterns:
+            if except_pattern in f:
+                skip = True
+                break
+        if skip:
+            logging.info('Skip technical file with %s: %s', except_pattern, f)
             continue
 
         fullpath = os.path.join(start_path, f)
@@ -330,7 +358,8 @@ def scan_folder(start_path, opts):
             if f.split('.')[-1] in file_types:
                 ytid = grep_ytid(f)
                 if ytid:
-                    logging.info('File: %s', f)
+                    logging.info('File: %s (%d of %d, %.1f %%)', f, fcount, len(files),
+                                 100 * fcount / len(files))
                     global interesting_files
                     interesting_files += 1
 
@@ -378,11 +407,15 @@ def setup_logging(log_filepath):
 
 
 def go_scan(start_path, opts):
-    global skip_until
+    global skip_until, FORCE_EXIT
+    if FORCE_EXIT:
+        return
+
     skip_until = opts['skip_until'] if 'skip_until' in opts else ''
     try:
         scan_folder(start_path, opts)
     except KeyboardInterrupt:
+        FORCE_EXIT = True
         logging.info('Interrupted!')
     except Exception as ex:
         logging.info('Error - %s!' % repr(ex), exc_info=1)
@@ -404,10 +437,13 @@ if __name__ == '__main__':
     # paths = ['H:/polit2022/Ukraine war/8 канал/fresh']
     for start_path in paths:
         setup_logging('scrape_runtime2.log')
-        opts = {            
+        opts = {
+            # 0 - dont sort, 1 = from old to the new, -1 = from new to the old.
+            'order_by_date': -1,
+            # 'skip_until': '5UoJqCbGDRk',
             # 'skip_until': 'cEBzmMkgJ9s',  # EmYeOBoLhYs
-            'forced_mtime': 0,
-            'skip_existing': 1,
+            'forced_mtime': 0,  # reset comments date by video file date, True/False
+            'skip_existing': 1,  # True/False
             'min_new_comments': 5,
             'min_new_comments_perc': 2,  # % новых комментов
             'update_if_negative': 2,
