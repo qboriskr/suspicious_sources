@@ -16,12 +16,11 @@ skip_until = ''  # part of filename to skip processing.
 tmp_file_path = ''
 FORCE_EXIT = False
 
-except_patterns_src = ['.f312.', '.f313.',
-                       '.f247.', '.f248.',
-                       '.f302.', '.f303.']
+except_patterns_src = [136, 137, 140, 244, 247, 248, 251, 271, 302, 303, 312, 313, 315, 398]
+
 except_patterns = set()
 for s in except_patterns_src:
-    except_patterns.add(s.strip())
+    except_patterns.add('.f%d.' % s)
 
 special_names_src = ['Seagate', 'system', 'windows', 'temp', 'tmp',
                      'ProgramData',
