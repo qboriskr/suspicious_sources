@@ -22,7 +22,7 @@ except_patterns = set()
 for s in except_patterns_src:
     except_patterns.add('.f%d.' % s)
 
-special_names_src = ['Seagate', 'system', 'windows', 'temp', 'tmp',
+special_names_src = ['Seagate', 'system', 'windows', 'temp', 'tmp', 'cookies',
                      'ProgramData',
                      '..', '.', 'home', "Documents and Settings", 'games',
                      "Program Files (x86)", "Program Files", "Windows",
@@ -39,7 +39,7 @@ logging.info('yt_length: %d', yt_length)
 
 dot_part_ext = ".part"
 
-file_types = ["mkv", "mp4", 'webm', 'part', 'dummy']
+file_types = ["mkv", "mp4", 'webm', 'stub', 'dummy']
 
 total_files = 0
 interesting_files = 0
@@ -57,10 +57,10 @@ def create_comments_dir_if_missing(start_path):
 
 def grep_ytid(f: str):
     if '[' in f and ']' in f:
-        ytid = f[f.find('[') + 1: f.find(']')]
+        ytid = f[f.rfind('[') + 1: f.rfind(']')]
         logging.info('%s -> ytid: %s', f, ytid)
         if len(ytid) == yt_length:
-            logging.info('ytid is ok')
+            logging.debug('ytid is ok')
             return ytid
 
     dot_left_part = f[:f.rfind('.')]
@@ -78,6 +78,8 @@ def grep_ytid(f: str):
 
 
 # (C) https://stackoverflow.com/a/68385697/17380035
+# After a perfplot analysis, one has to recommend the buffered read solution
+# It's fast and memory-efficient. Most other solutions are about 20 times slower.
 def buf_count_newlines_gen(fname):
     def _make_gen(reader):
         while True:
@@ -130,7 +132,7 @@ def set_file_mtime(new_path, opts, forced_mtime=False):
             logging.error('Cannot set mtime: %s', exc)
 
 
-def convert_to_text(comments_path, opts):
+def convert_json_to_text(comments_path, opts):
     """
     Example:
     {"cid": "UgzNyqxPkw0q1ItcCKx4AaABAg", "text": "Шеф :elbowcough: всё пропало! гипс снимают! клиент уезжает!:yougotthis:",
@@ -209,7 +211,7 @@ def check_existing_comments(comments_path, opts, n=1, prev=None, origin=None):
     if os.path.exists(comments_path):
         set_file_mtime(comments_path, opts, forced_mtime=True)
         opts['mark_text'] = 'UPDATE txt by existing json'
-        convert_to_text(comments_path, opts)
+        convert_json_to_text(comments_path, opts)
 
         if origin is None:
             origin = comments_path
@@ -219,7 +221,52 @@ def check_existing_comments(comments_path, opts, n=1, prev=None, origin=None):
     return comments_path, prev
 
 
-def process_video(f, ytid, comments_dir_path, opts):
+def get_bool_option(opts, param):
+    val = opts[param] if param in opts else False
+    if type(val) == str:
+        val = val.lower()
+        return val in ['1', 'true', 'ага', 'да', 'yes', 'yep', 'yeah']
+    return bool(val)
+
+
+def load_vids_without_comments(start_path, opts):
+    # Грузит перечень ранее сканированных видосов, у которых нет комментов
+    if 'no_comments_file' in opts:
+        no_comments_file = opts['no_comments_file']
+    else:
+        return []
+    vids_without_comments = []
+    full_no_comments_file_path = os.path.join(start_path, no_comments_file)
+    if not os.path.exists(full_no_comments_file_path):
+        return []
+    with open(full_no_comments_file_path, 'r', errors="ignore") as fp:
+        for line in fp:
+            vids_without_comments.append(line.strip())  # cut \n in the end of each line
+    logging.debug('Loaded ytids from %s: %s', full_no_comments_file_path, repr(vids_without_comments))
+    return vids_without_comments
+
+
+def append_video_without_comments(ytid, start_path, opts):
+    # Добавляет в конец файла ytid видоса без комментов, если включена опция store_vids_without_comments.
+    if 'no_comments_file' in opts:
+        no_comments_file = opts['no_comments_file']
+    else:
+        return
+    if not get_bool_option(opts, 'store_vids_without_comments'):
+        return
+
+    logging.info('Append vid without comments: %s', ytid)
+    full_no_comments_file_path = os.path.join(start_path, no_comments_file)
+    with open(full_no_comments_file_path, 'a+', errors="ignore") as fp:
+        fp.write(ytid)
+        fp.write('\n')
+
+
+def process_video(f, ytid, comments_dir_path, opts, start_path, vids_without_comments):
+    if not get_bool_option(opts, 'rescan_vids_without_comments') and ytid in vids_without_comments:
+        logging.debug('Skip %s - in vids_without_comments list', ytid)
+        return None
+
     global skip_until
     update_if_negative = opts['update_if_negative']
     min_new_comments_to_keep = opts['min_new_comments']
@@ -282,7 +329,11 @@ def process_video(f, ytid, comments_dir_path, opts):
     if not new_lines:
         logging.info('DEL - no comments!')
         del_file(new_comments_path)
+        if ytid not in vids_without_comments:
+            vids_without_comments.append(ytid)
+            append_video_without_comments(ytid, start_path, opts)
         return None
+
     if prev_comments_path is not None:
         # или число коментов совпадает с предыдущим - удаляем
         old_lines = get_lines_count(prev_comments_path)
@@ -315,13 +366,16 @@ def process_video(f, ytid, comments_dir_path, opts):
     return new_comments_path
 
 
-def scan_folder(start_path, opts):
+def scan_dir_recursively(start_path, opts):
     logging.info('Scanning %s', start_path)
     comments_path = None
     try:
         order_by_date = int(opts['order_by_date'])
     except KeyError:
         order_by_date = -1
+
+    # Для каждого каталога создаем перечень видосов, к которым не удалось загрузить комменты
+    vids_without_comments = load_vids_without_comments(start_path, opts)
 
     files = os.listdir(start_path)
     if order_by_date == -1:
@@ -372,11 +426,12 @@ def scan_folder(start_path, opts):
                         comments_path = create_comments_dir_if_missing(start_path)
 
                     opts['mark_text'] = ''  # clean mark text
-                    result_comments_path = process_video(f, ytid, comments_path, opts)
+                    result_comments_path = process_video(f, ytid, comments_path, opts, start_path,
+                                                         vids_without_comments)
                     if result_comments_path:
                         global created_comments
                         created_comments += 1
-                        convert_to_text(result_comments_path, opts)
+                        convert_json_to_text(result_comments_path, opts)
 
                     global tmp_file_path
                     tmp_file_path = ''
@@ -388,21 +443,35 @@ def scan_folder(start_path, opts):
             logging.info('Subdir: %s', f)
             global subfolders
             subfolders += 1
-            scan_folder(fullpath, opts)
+            scan_dir_recursively(fullpath, opts)
 
 
-def setup_logging(log_filepath):
+def setup_logging(log_filepath, level=logging.DEBUG):
     logging.root.handlers = []
     logging.basicConfig(filename=log_filepath,
                         encoding='utf-8',
                         format='%(asctime)s: %(message)s',
-                        level=logging.DEBUG,
+                        level=level,
                         datefmt='%Y-%m-%d %I:%M:%S')
     console = logging.StreamHandler()
     console.setLevel(logging.DEBUG)
     formatter = logging.Formatter('%(message)s')
     console.setFormatter(formatter)
     logging.getLogger("").addHandler(console)
+
+
+def clean_empty_dir_if_necessary(start_path, opts):
+    if not get_bool_option(opts, 'clean_empty_dir'):
+        return
+
+    full_comments_path = os.path.join(start_path, comments_dir)
+    files_count = len(os.listdir(full_comments_path))
+    logging.debug('Files: %s', files_count)
+    if files_count > 0:
+        logging.debug("Not empty directory %s", full_comments_path)
+        return
+    logging.debug("Empty directory %s - deleting...", full_comments_path)
+    os.rmdir(full_comments_path)
 
 
 def go_scan(start_path, opts):
@@ -412,7 +481,8 @@ def go_scan(start_path, opts):
 
     skip_until = opts['skip_until'] if 'skip_until' in opts else ''
     try:
-        scan_folder(start_path, opts)
+        scan_dir_recursively(start_path, opts)
+        clean_empty_dir_if_necessary(start_path, opts)
     except KeyboardInterrupt:
         FORCE_EXIT = True
         logging.info('Interrupted!')
@@ -444,6 +514,10 @@ if __name__ == '__main__':
             'forced_mtime': 0,  # reset comments date by video file date, True/False
             'skip_existing': 1,  # True/False
             'min_new_comments': 5,
+            'clean_empty_dir': 'yes',
+            'rescan_vids_without_comments': 0,
+            'no_comments_file': 'no_comments.txt',
+            'store_vids_without_comments': 1,
             'min_new_comments_perc': 2,  # % новых комментов
             'update_if_negative': 2,
             'convert_to_text': 1,
